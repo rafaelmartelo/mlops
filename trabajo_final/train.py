@@ -5,53 +5,67 @@ import pandas as pd
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import accuracy_score
 import joblib
+import traceback
 
 def find_csv_file(path):
-    """Devuelve el primer archivo CSV encontrado en un directorio"""
     for file in os.listdir(path):
         if file.endswith(".csv"):
             return os.path.join(path, file)
     raise FileNotFoundError(f"No se encontró ningún archivo CSV en {path}")
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--n-estimators", type=int, default=100)
-    parser.add_argument("--max-depth", type=int, default=10)
-    args = parser.parse_args()
+    try:
+        print("==== Iniciando entrenamiento ====")
 
-    # Paths
-    train_dir = "/opt/ml/input/data/train"
-    test_dir = "/opt/ml/input/data/test"
-    model_dir = "/opt/ml/model"
+        parser = argparse.ArgumentParser()
+        parser.add_argument("--n-estimators", type=int, default=100)
+        parser.add_argument("--max-depth", type=int, default=10)
+        args = parser.parse_args()
 
-    train_path = find_csv_file(train_dir)
-    test_path = find_csv_file(test_dir)
+        print("Parámetros recibidos:", args)
 
-    # Leer datos
-    train_data = pd.read_csv(train_path)
-    test_data = pd.read_csv(test_path)
+        # Paths esperados por SageMaker
+        train_dir = "/opt/ml/input/data/train"
+        test_dir = "/opt/ml/input/data/test"
+        model_dir = "/opt/ml/model"
 
-    # Validaciones básicas
-    if "readmitted" not in train_data.columns:
-        raise ValueError("La columna 'readmitted' no se encuentra en los datos de entrenamiento.")
+        print(f"Buscando archivos en {train_dir} y {test_dir}...")
 
-    X_train = train_data.drop("readmitted", axis=1)
-    y_train = train_data["readmitted"]
-    X_test = test_data.drop("readmitted", axis=1)
-    y_test = test_data["readmitted"]
+        train_path = find_csv_file(train_dir)
+        test_path = find_csv_file(test_dir)
 
-    # Entrenar modelo
-    model = RandomForestClassifier(
-        n_estimators=args.n_estimators,
-        max_depth=args.max_depth,
-        random_state=42
-    )
-    model.fit(X_train, y_train)
+        print("Archivo de entrenamiento:", train_path)
+        print("Archivo de prueba:", test_path)
 
-    # Evaluar
-    predictions = model.predict(X_test)
-    accuracy = accuracy_score(y_test, predictions)
-    print("Accuracy:", accuracy)
+        train_data = pd.read_csv(train_path)
+        test_data = pd.read_csv(test_path)
 
-    # Guardar modelo
-    joblib.dump(model, os.path.join(model_dir, "model.joblib"))
+        print("Columnas de train:", train_data.columns)
+        print("Columnas de test:", test_data.columns)
+
+        if "readmitted" not in train_data.columns:
+            raise ValueError("La columna 'readmitted' no está en los datos de entrenamiento")
+
+        X_train = train_data.drop("readmitted", axis=1)
+        y_train = train_data["readmitted"]
+        X_test = test_data.drop("readmitted", axis=1)
+        y_test = test_data["readmitted"]
+
+        model = RandomForestClassifier(
+            n_estimators=args.n_estimators,
+            max_depth=args.max_depth,
+            random_state=42
+        )
+        model.fit(X_train, y_train)
+
+        predictions = model.predict(X_test)
+        acc = accuracy_score(y_test, predictions)
+        print(f"Precisión del modelo: {acc}")
+
+        joblib.dump(model, os.path.join(model_dir, "model.joblib"))
+        print("Modelo guardado exitosamente.")
+
+    except Exception as e:
+        print("❌ Error en el entrenamiento:")
+        traceback.print_exc()
+        raise e
