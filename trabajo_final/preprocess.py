@@ -1,81 +1,63 @@
-import subprocess
-import sys
-
-# Instala imbalanced-learn si no está instalado
-subprocess.check_call([sys.executable, "-m", "pip", "install", "imbalanced-learn==0.12.4"])
-
-
-import argparse
 import pandas as pd
 import numpy as np
 import os
+import argparse
 from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import OneHotEncoder, StandardScaler
-from imblearn.pipeline import Pipeline
-from imblearn.combine import SMOTEENN
-from imblearn.under_sampling import RandomUnderSampler
-from imblearn.over_sampling import SMOTE
+from sklearn.preprocessing import StandardScaler
+from imblearn.over_sampling import RandomOverSampler
 
-subprocess.call(["pip", "install", "imbalanced-learn==0.12.4"])
+# Argumentos
+parser = argparse.ArgumentParser()
+parser.add_argument('--input-data', type=str)
+parser.add_argument('--output-train', type=str)
+parser.add_argument('--output-test', type=str)
+args = parser.parse_args()
 
+print("📥 Leyendo archivo desde:", args.input_data)
+df = pd.read_csv(os.path.join(args.input_data, "diabetic_data.csv"))
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--input-data", type=str, required=True)
-    parser.add_argument("--output-train", type=str, required=True)
-    parser.add_argument("--output-test", type=str, required=True)
-    args = parser.parse_args()
+# Reemplazar valores "?" por NaN
+df.replace("?", np.nan, inplace=True)
 
-    print(f"📥 Leyendo archivo desde: {args.input_data}")
-    df = pd.read_csv(os.path.join(args.input_data, "diabetic_data.csv"))
+# Variable objetivo
+y = df["readmitted"].copy()
+X = df.drop(columns=["readmitted"])
 
-    print("🧹 Preprocesando datos...")
-    df.replace("?", np.nan, inplace=True)
-    df.drop(columns=["encounter_id", "patient_nbr"], inplace=True)
+# Identificar columnas categóricas y numéricas
+cat_cols = X.select_dtypes(include="object").columns.tolist()
+num_cols = X.select_dtypes(include="number").columns.tolist()
 
-    df = df.dropna()
+print("🔣 Columnas categóricas:", cat_cols)
+print("🔢 Columnas numéricas:", num_cols)
 
-    target = "readmitted"
-    df = df[df[target] != "NO"]
-    df[target] = df[target].apply(lambda x: 1 if x == "<30" else 0)
+# Convertir columnas categóricas a tipo category
+for col in cat_cols:
+    X[col] = X[col].astype("category")
 
-    X = df.drop(columns=[target])
-    y = df[target]
+# Codificar variables categóricas como códigos numéricos
+X[cat_cols] = X[cat_cols].apply(lambda x: x.cat.codes)
 
-    print("🔣 Codificando variables categóricas...")
-    categorical_cols = X.select_dtypes(include=["object"]).columns.tolist()
-    numerical_cols = X.select_dtypes(include=["int64", "float64"]).columns.tolist()
+# Escalar variables numéricas
+scaler = StandardScaler()
+X[num_cols] = scaler.fit_transform(X[num_cols])
 
-    encoder = OneHotEncoder(handle_unknown="ignore", sparse=False)
-    scaler = StandardScaler()
+# Oversampling con RandomOverSampler
+print("⚖️ Aplicando RandomOverSampler...")
+ros = RandomOverSampler(random_state=42)
+X_resampled, y_resampled = ros.fit_resample(X, y)
 
-    X_cat = pd.DataFrame(encoder.fit_transform(X[categorical_cols]))
-    X_num = pd.DataFrame(scaler.fit_transform(X[numerical_cols]))
+# División train/test
+print("🧪 Dividiendo datos...")
+X_train, X_test, y_train, y_test = train_test_split(X_resampled, y_resampled, test_size=0.2, random_state=42)
 
-    X_processed = pd.concat([X_num.reset_index(drop=True), X_cat.reset_index(drop=True)], axis=1)
+# Combinar y guardar
+train = pd.concat([X_train, y_train], axis=1)
+test = pd.concat([X_test, y_test], axis=1)
 
-    print(f"📐 Shape antes del resampling: {X_processed.shape}")
+print("💾 Guardando train en:", args.output_train)
+train.to_csv(os.path.join(args.output_train, "train.csv"), index=False)
 
-    print("⚖️ Aplicando pipeline: RandomUnderSampler + SMOTE...")
-    sampler_pipeline = Pipeline([
-        ("under", RandomUnderSampler(sampling_strategy=0.5, random_state=42)),
-        ("smote", SMOTE(sampling_strategy=0.8, random_state=42))
-    ])
+print("💾 Guardando test en:", args.output_test)
+test.to_csv(os.path.join(args.output_test, "test.csv"), index=False)
 
-    X_resampled, y_resampled = sampler_pipeline.fit_resample(X_processed, y)
-    print(f"📏 Shape después del resampling: {X_resampled.shape}")
-
-    print("✂️ Dividiendo en train y test...")
-    X_train, X_test, y_train, y_test = train_test_split(X_resampled, y_resampled, test_size=0.2, random_state=42)
-
-    print("💾 Guardando datos procesados...")
-    os.makedirs(args.output_train, exist_ok=True)
-    os.makedirs(args.output_test, exist_ok=True)
-
-    X_train["target"] = y_train
-    X_test["target"] = y_test
-
-    X_train.to_csv(os.path.join(args.output_train, "train.csv"), index=False)
-    X_test.to_csv(os.path.join(args.output_test, "test.csv"), index=False)
-
-    print("✅ ¡Preprocesamiento finalizado!")
+print("✅ Preprocesamiento completado.")
