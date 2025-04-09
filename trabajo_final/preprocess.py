@@ -1,102 +1,71 @@
-import subprocess
-import sys
-
-# Instalar imbalanced-learn si no está instalada
-subprocess.check_call([sys.executable, "-m", "pip", "install", "imbalanced-learn"])
-
+import argparse
 import pandas as pd
 import numpy as np
-import argparse
 import os
-
 from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import StandardScaler, OneHotEncoder
-from sklearn.impute import SimpleImputer
-from sklearn.pipeline import Pipeline
-from sklearn.compose import ColumnTransformer
+from sklearn.preprocessing import OneHotEncoder, StandardScaler
+from imblearn.pipeline import Pipeline
+from imblearn.combine import SMOTEENN
+from imblearn.under_sampling import RandomUnderSampler
 from imblearn.over_sampling import SMOTE
 
-# Argumentos
-parser = argparse.ArgumentParser()
-parser.add_argument("--input-data", type=str, default="/opt/ml/processing/input")
-parser.add_argument("--output-train", type=str, default="/opt/ml/processing/train")
-parser.add_argument("--output-test", type=str, default="/opt/ml/processing/test")
-args = parser.parse_args()
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--input-data", type=str, required=True)
+    parser.add_argument("--output-train", type=str, required=True)
+    parser.add_argument("--output-test", type=str, required=True)
+    args = parser.parse_args()
 
-# Cargar datos
-input_path = os.path.join(args.input_data, "diabetic_data.csv")
-print(f"📥 Leyendo archivo desde: {input_path}")
-df = pd.read_csv(input_path)
+    print(f"📥 Leyendo archivo desde: {args.input_data}")
+    df = pd.read_csv(os.path.join(args.input_data, "diabetic_data.csv"))
 
-# Eliminar columnas innecesarias o que no aportan al modelo
-df = df.drop(columns=["encounter_id", "patient_nbr"])
+    print("🧹 Preprocesando datos...")
+    df.replace("?", np.nan, inplace=True)
+    df.drop(columns=["encounter_id", "patient_nbr"], inplace=True)
 
-# Eliminar filas con valores desconocidos en la variable objetivo
-df = df[df["readmitted"] != "NA"]
+    df = df.dropna()
 
-# Simplificar la variable objetivo a clasificación binaria
-df["readmitted"] = df["readmitted"].apply(lambda x: 1 if x == "<30" else 0)
+    target = "readmitted"
+    df = df[df[target] != "NO"]
+    df[target] = df[target].apply(lambda x: 1 if x == "<30" else 0)
 
-# Eliminar columnas constantes
-df = df.loc[:, df.nunique() > 1]
+    X = df.drop(columns=[target])
+    y = df[target]
 
-# Separar variables predictoras y objetivo
-X = df.drop(columns=["readmitted"])
-y = df["readmitted"]
+    print("🔣 Codificando variables categóricas...")
+    categorical_cols = X.select_dtypes(include=["object"]).columns.tolist()
+    numerical_cols = X.select_dtypes(include=["int64", "float64"]).columns.tolist()
 
-# Mostrar tipos de datos
-print("\n📊 Tipos de columnas en X:")
-print(X.dtypes)
+    encoder = OneHotEncoder(handle_unknown="ignore", sparse=False)
+    scaler = StandardScaler()
 
-# Detectar columnas numéricas y categóricas
-numeric_features = X.select_dtypes(include=["int64", "float64"]).columns.tolist()
-categorical_features = X.select_dtypes(include=["object", "category", "bool"]).columns.tolist()
+    X_cat = pd.DataFrame(encoder.fit_transform(X[categorical_cols]))
+    X_num = pd.DataFrame(scaler.fit_transform(X[numerical_cols]))
 
-print("\n🔢 Columnas numéricas:", numeric_features)
-print("🔣 Columnas categóricas:", categorical_features)
+    X_processed = pd.concat([X_num.reset_index(drop=True), X_cat.reset_index(drop=True)], axis=1)
 
-# Pipelines para preprocesamiento
-numeric_transformer = Pipeline(steps=[
-    ("imputer", SimpleImputer(strategy="mean")),
-    ("scaler", StandardScaler())
-])
+    print(f"📐 Shape antes del resampling: {X_processed.shape}")
 
-categorical_transformer = Pipeline(steps=[
-    ("imputer", SimpleImputer(strategy="most_frequent")),
-    ("onehot", OneHotEncoder(handle_unknown="ignore", sparse_output=False))
-])
+    print("⚖️ Aplicando pipeline: RandomUnderSampler + SMOTE...")
+    sampler_pipeline = Pipeline([
+        ("under", RandomUnderSampler(sampling_strategy=0.5, random_state=42)),
+        ("smote", SMOTE(sampling_strategy=0.8, random_state=42))
+    ])
 
-preprocessor = ColumnTransformer(transformers=[
-    ("num", numeric_transformer, numeric_features),
-    ("cat", categorical_transformer, categorical_features)
-])
+    X_resampled, y_resampled = sampler_pipeline.fit_resample(X_processed, y)
+    print(f"📏 Shape después del resampling: {X_resampled.shape}")
 
-# Aplicar preprocesamiento
-print("\n⚙️ Procesando datos...")
-X_processed = preprocessor.fit_transform(X)
+    print("✂️ Dividiendo en train y test...")
+    X_train, X_test, y_train, y_test = train_test_split(X_resampled, y_resampled, test_size=0.2, random_state=42)
 
-# Aplicar SMOTE para balancear clases
-print("\n⚖️ Aplicando SMOTE...")
-smote = SMOTE(random_state=42)
-X_resampled, y_resampled = smote.fit_resample(X_processed, y)
+    print("💾 Guardando datos procesados...")
+    os.makedirs(args.output_train, exist_ok=True)
+    os.makedirs(args.output_test, exist_ok=True)
 
-# Dividir en train/test
-X_train, X_test, y_train, y_test = train_test_split(X_resampled, y_resampled, test_size=0.2, random_state=42)
+    X_train["target"] = y_train
+    X_test["target"] = y_test
 
-# Guardar archivos en formato CSV
-os.makedirs(args.output_train, exist_ok=True)
-os.makedirs(args.output_test, exist_ok=True)
+    X_train.to_csv(os.path.join(args.output_train, "train.csv"), index=False)
+    X_test.to_csv(os.path.join(args.output_test, "test.csv"), index=False)
 
-train_output = os.path.join(args.output_train, "train.csv")
-test_output = os.path.join(args.output_test, "test.csv")
-
-train_df = pd.DataFrame(X_train)
-train_df["target"] = y_train
-train_df.to_csv(train_output, index=False)
-
-test_df = pd.DataFrame(X_test)
-test_df["target"] = y_test
-test_df.to_csv(test_output, index=False)
-
-print(f"\n✅ Archivos guardados:\n - {train_output}\n - {test_output}")
-print("✅ Preprocesamiento completado.")
+    print("✅ ¡Preprocesamiento finalizado!")
