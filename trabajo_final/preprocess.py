@@ -1,66 +1,66 @@
 import pandas as pd
 import numpy as np
 import os
-import argparse
+from sklearn.preprocessing import OneHotEncoder, MinMaxScaler
 from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import StandardScaler
-from sklearn.utils import resample
 
-# Argumentos
-parser = argparse.ArgumentParser()
-parser.add_argument('--input-data', type=str)
-parser.add_argument('--output-train', type=str)
-parser.add_argument('--output-test', type=str)
-args = parser.parse_args()
+def preprocess(df):
+    # Reemplazar valores faltantes codificados como '?'
+    df.replace('?', np.nan, inplace=True)
 
-print("📥 Leyendo archivo desde:", args.input_data)
-df = pd.read_csv(os.path.join(args.input_data, "diabetic_data.csv"))
+    # Eliminar columnas con más del 20% de valores faltantes
+    missing_ratio = df.isnull().mean()
+    cols_to_drop = missing_ratio[missing_ratio > 0.2].index
+    df.drop(columns=cols_to_drop, inplace=True)
+    
+    # Transformar variable objetivo
+    df['readmitted'] = df['readmitted'].apply(lambda x: 1 if x == '<30' else 0)
+    
+    # Separar variables
+    X = df.drop(columns=['readmitted'])
+    y = df['readmitted']
+    
+    # Separar columnas numéricas y categóricas
+    num_cols = X.select_dtypes(include=[np.number]).columns.tolist()
+    cat_cols = X.select_dtypes(include=['object', 'category']).columns.tolist()
 
-# Reemplazar "?" con NaN
-df.replace("?", np.nan, inplace=True)
+    # One-hot encoding para categóricas
+    encoder = OneHotEncoder(sparse=False, handle_unknown='ignore')
+    X_cat = encoder.fit_transform(X[cat_cols])
+    cat_feature_names = encoder.get_feature_names_out(cat_cols)
+    X_cat_df = pd.DataFrame(X_cat, columns=cat_feature_names)
 
-# Variable objetivo
-y = df["readmitted"].copy()
-X = df.drop(columns=["readmitted"])
+    # Escalado MinMax para numéricas
+    scaler = MinMaxScaler()
+    X_num = scaler.fit_transform(X[num_cols])
+    X_num_df = pd.DataFrame(X_num, columns=num_cols)
 
-# Columnas categóricas y numéricas
-cat_cols = X.select_dtypes(include="object").columns.tolist()
-num_cols = X.select_dtypes(include="number").columns.tolist()
+    # Concatenar de nuevo
+    X_processed = pd.concat([X_num_df.reset_index(drop=True), X_cat_df.reset_index(drop=True)], axis=1)
 
-# Convertir a categorías
-for col in cat_cols:
-    X[col] = X[col].astype("category")
+    # Dividir en entrenamiento y prueba
+    X_train, X_test, y_train, y_test = train_test_split(X_processed, y, test_size=0.2, random_state=42)
 
-# Codificar categorías
-X[cat_cols] = X[cat_cols].apply(lambda x: x.cat.codes)
+    return X_train, X_test, y_train, y_test
 
-# Escalar numéricas
-scaler = StandardScaler()
-X[num_cols] = scaler.fit_transform(X[num_cols])
+if __name__ == "__main__":
+    print("Leyendo datos...")
+    input_path = "/opt/ml/processing/input/diabetic_data.csv"
+    output_train_path = "/opt/ml/processing/train"
+    output_test_path = "/opt/ml/processing/test"
 
-# Sobremuestreo manual
-print("⚖️ Aplicando sobremuestreo con resample()...")
-df_resampled = pd.concat([X, y], axis=1)
-majority = df_resampled[df_resampled["readmitted"] == "NO"]
-minority = df_resampled[df_resampled["readmitted"] != "NO"]
-minority_upsampled = resample(minority, replace=True, n_samples=len(majority), random_state=42)
-df_balanced = pd.concat([majority, minority_upsampled])
+    df = pd.read_csv(input_path)
 
-# Shuffle
-df_balanced = df_balanced.sample(frac=1, random_state=42).reset_index(drop=True)
+    print("Preprocesando datos...")
+    X_train, X_test, y_train, y_test = preprocess(df)
 
-# Dividir nuevamente
-X_bal = df_balanced.drop(columns=["readmitted"])
-y_bal = df_balanced["readmitted"]
+    print("Guardando datos preprocesados...")
+    os.makedirs(output_train_path, exist_ok=True)
+    os.makedirs(output_test_path, exist_ok=True)
 
-X_train, X_test, y_train, y_test = train_test_split(X_bal, y_bal, test_size=0.2, random_state=42)
+    X_train.to_csv(f"{output_train_path}/X_train.csv", index=False)
+    y_train.to_csv(f"{output_train_path}/y_train.csv", index=False)
+    X_test.to_csv(f"{output_test_path}/X_test.csv", index=False)
+    y_test.to_csv(f"{output_test_path}/y_test.csv", index=False)
 
-# Guardar
-print("💾 Guardando sets...")
-train = pd.concat([X_train, y_train], axis=1)
-test = pd.concat([X_test, y_test], axis=1)
-
-train.to_csv(os.path.join(args.output_train, "train.csv"), index=False)
-test.to_csv(os.path.join(args.output_test, "test.csv"), index=False)
-
-print("✅ Preprocesamiento terminado.")
+    print("Finalizado.")
