@@ -1,3 +1,5 @@
+
+
 import argparse
 import pandas as pd
 import numpy as np
@@ -8,6 +10,9 @@ from imblearn.pipeline import Pipeline
 from imblearn.combine import SMOTEENN
 from imblearn.under_sampling import RandomUnderSampler
 from imblearn.over_sampling import SMOTE
+import subprocess
+subprocess.call(["pip", "install", "imbalanced-learn==0.12.4"])
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
