@@ -1,3 +1,8 @@
+import subprocess
+import sys
+
+# Instala imbalanced-learn si no está instalado
+subprocess.check_call([sys.executable, "-m", "pip", "install", "imbalanced-learn==0.12.4"])
 
 
 import argparse
@@ -10,7 +15,7 @@ from imblearn.pipeline import Pipeline
 from imblearn.combine import SMOTEENN
 from imblearn.under_sampling import RandomUnderSampler
 from imblearn.over_sampling import SMOTE
-import subprocess
+
 subprocess.call(["pip", "install", "imbalanced-learn==0.12.4"])
 
 
