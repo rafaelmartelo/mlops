@@ -50,6 +50,7 @@ if __name__ == "__main__":
     output_test_path = "/opt/ml/processing/test"
 
     df = pd.read_csv(input_path)
+    df = df.sample(frac=0.3, random_state=42)
 
     print("Preprocesando datos...")
     X_train, X_test, y_train, y_test = preprocess(df)
