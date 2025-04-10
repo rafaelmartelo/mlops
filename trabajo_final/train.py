@@ -37,11 +37,12 @@ if __name__ == "__main__":
     )
     model.fit(X_train, y_train)
 
-    # Evaluar y guardar métrica en archivo para SageMaker HPO
+    # Evaluar y guardar métrica
     preds = model.predict(X_test)
     acc = accuracy_score(y_test, preds)
 
-    # SageMaker espera que se escriban los resultados en un archivo
+    **print(f"validation:accuracy={acc}")**  
+
     with open(os.path.join(output_dir, "validation_accuracy.txt"), "w") as f:
         f.write(f"{acc}\n")
 
