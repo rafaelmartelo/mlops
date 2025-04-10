@@ -16,6 +16,14 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
+    # Validaciones
+    if args.n_estimators <= 0:
+        raise ValueError("n_estimators must be > 0")
+    if args.min_samples_split < 2:
+        raise ValueError("min_samples_split must be >= 2")
+    if args.max_depth is not None and args.max_depth <= 0:
+        raise ValueError("max_depth must be None or > 0")
+
     # Directorios de entrada/salida
     train_dir = "/opt/ml/input/data/train"
     test_dir = "/opt/ml/input/data/test"
@@ -28,7 +36,7 @@ if __name__ == "__main__":
     X_test = pd.read_csv(os.path.join(test_dir, "X_test.csv"))
     y_test = pd.read_csv(os.path.join(test_dir, "y_test.csv")).values.ravel()
 
-    # Entrenar modelo con hiperparámetros
+    # Entrenar modelo
     model = RandomForestClassifier(
         n_estimators=args.n_estimators,
         max_depth=args.max_depth,
@@ -37,14 +45,12 @@ if __name__ == "__main__":
     )
     model.fit(X_train, y_train)
 
-    # Evaluar y guardar métrica
+    # Evaluar
     preds = model.predict(X_test)
     acc = accuracy_score(y_test, preds)
 
-    **print(f"validation:accuracy={acc}")**  
-
-    with open(os.path.join(output_dir, "validation_accuracy.txt"), "w") as f:
-        f.write(f"{acc}\n")
+    # Mostrar métrica para HPO
+    print(f"validation:accuracy={acc}")
 
     # Guardar modelo
     joblib.dump(model, os.path.join(model_dir, "model.joblib"))
