@@ -19,14 +19,15 @@ if __name__ == "__main__":
     df.rename(columns={'readmitted': 'readmitted<30'}, inplace=True)
 
     # Filtrar columnas
-    filtro = ['num_lab_procedures', 'num_medications', 'time_in_hospital', 'number_inpatient', 'age', 'number_diagnoses', 'readmitted<30']
+    filtro = ['num_lab_procedures', 'num_medications', 'time_in_hospital',
+              'number_inpatient', 'age', 'number_diagnoses', 'readmitted<30']
     df_filtrado = df[filtro]
 
     # One-hot encoding de 'age'
     age_dummies = pd.get_dummies(df_filtrado['age'], prefix='age', dtype=int)
     df_filtrado = pd.concat([df_filtrado.drop(columns=['age']), age_dummies], axis=1)
 
-    # Tomar muestra del 20% manteniendo proporciones de la clase (estratificado)
+    # Muestra del 20% estratificada
     df_sampled, _ = train_test_split(
         df_filtrado,
         train_size=0.20,
@@ -34,24 +35,29 @@ if __name__ == "__main__":
         random_state=42
     )
 
-    # Dividir en entrenamiento y prueba (80/20)
-    train_df, test_df = train_test_split(
-        df_sampled,
+    # Separar X e y
+    X = df_sampled.drop(columns=['readmitted<30'])
+    y = df_sampled['readmitted<30']
+
+    # Separar en train y test
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y,
         test_size=0.2,
-        stratify=df_sampled['readmitted<30'],
+        stratify=y,
         random_state=42
     )
 
-    # Guardar archivos
+    # Crear carpetas de salida
     os.makedirs(args.output_train, exist_ok=True)
     os.makedirs(args.output_test, exist_ok=True)
 
-    train_path = os.path.join(args.output_train, "train.csv")
-    test_path = os.path.join(args.output_test, "test.csv")
+    # Guardar datasets
+    X_train.to_csv(os.path.join(args.output_train, "X_train.csv"), index=False)
+    y_train.to_csv(os.path.join(args.output_train, "y_train.csv"), index=False)
 
-    train_df.to_csv(train_path, index=False)
-    test_df.to_csv(test_path, index=False)
+    X_test.to_csv(os.path.join(args.output_test, "X_test.csv"), index=False)
+    y_test.to_csv(os.path.join(args.output_test, "y_test.csv"), index=False)
 
-    print("Preprocesamiento terminado. Shapes:")
-    print("Train:", train_df.shape)
-    print("Test:", test_df.shape)
+    print("Preprocesamiento finalizado:")
+    print(f"X_train: {X_train.shape}, y_train: {y_train.shape}")
+    print(f"X_test: {X_test.shape}, y_test: {y_test.shape}")
