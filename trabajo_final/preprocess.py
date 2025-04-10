@@ -1,67 +1,57 @@
-import pandas as pd
-import numpy as np
 import os
-from sklearn.preprocessing import OneHotEncoder, MinMaxScaler
+import argparse
+import pandas as pd
 from sklearn.model_selection import train_test_split
 
-def preprocess(df):
-    # Reemplazar valores faltantes codificados como '?'
-    df.replace('?', np.nan, inplace=True)
-
-    # Eliminar columnas con más del 20% de valores faltantes
-    missing_ratio = df.isnull().mean()
-    cols_to_drop = missing_ratio[missing_ratio > 0.2].index
-    df.drop(columns=cols_to_drop, inplace=True)
-    
-    # Transformar variable objetivo
-    df['readmitted'] = df['readmitted'].apply(lambda x: 1 if x == '<30' else 0)
-    
-    # Separar variables
-    X = df.drop(columns=['readmitted'])
-    y = df['readmitted']
-    
-    # Separar columnas numéricas y categóricas
-    num_cols = X.select_dtypes(include=[np.number]).columns.tolist()
-    cat_cols = X.select_dtypes(include=['object', 'category']).columns.tolist()
-
-    # One-hot encoding para categóricas
-    encoder = OneHotEncoder(sparse=False, handle_unknown='ignore')
-    X_cat = encoder.fit_transform(X[cat_cols])
-    cat_feature_names = encoder.get_feature_names_out(cat_cols)
-    X_cat_df = pd.DataFrame(X_cat, columns=cat_feature_names)
-
-    # Escalado MinMax para numéricas
-    scaler = MinMaxScaler()
-    X_num = scaler.fit_transform(X[num_cols])
-    X_num_df = pd.DataFrame(X_num, columns=num_cols)
-
-    # Concatenar de nuevo
-    X_processed = pd.concat([X_num_df.reset_index(drop=True), X_cat_df.reset_index(drop=True)], axis=1)
-
-    # Dividir en entrenamiento y prueba
-    X_train, X_test, y_train, y_test = train_test_split(X_processed, y, test_size=0.2, random_state=42)
-
-    return X_train, X_test, y_train, y_test
-
 if __name__ == "__main__":
-    print("Leyendo datos...")
-    input_path = "/opt/ml/processing/input/diabetic_data.csv"
-    output_train_path = "/opt/ml/processing/train"
-    output_test_path = "/opt/ml/processing/test"
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--input-data", type=str, default="/opt/ml/processing/input")
+    parser.add_argument("--output-train", type=str, default="/opt/ml/processing/train")
+    parser.add_argument("--output-test", type=str, default="/opt/ml/processing/test")
+    args = parser.parse_args()
 
+    # Cargar datos
+    input_path = os.path.join(args.input_data, "diabetes.csv")
     df = pd.read_csv(input_path)
-    df = df.sample(frac=0.3, random_state=42)
 
-    print("Preprocesando datos...")
-    X_train, X_test, y_train, y_test = preprocess(df)
+    # Convertir columna objetivo a binaria
+    df['readmitted'] = df['readmitted'].apply(lambda x: 1 if x == '<30' else 0)
+    df.rename(columns={'readmitted': 'readmitted<30'}, inplace=True)
 
-    print("Guardando datos preprocesados...")
-    os.makedirs(output_train_path, exist_ok=True)
-    os.makedirs(output_test_path, exist_ok=True)
+    # Filtrar columnas
+    filtro = ['num_lab_procedures', 'num_medications', 'time_in_hospital', 'number_inpatient', 'age', 'number_diagnoses', 'readmitted<30']
+    df_filtrado = df[filtro]
 
-    X_train.to_csv(f"{output_train_path}/X_train.csv", index=False)
-    y_train.to_csv(f"{output_train_path}/y_train.csv", index=False)
-    X_test.to_csv(f"{output_test_path}/X_test.csv", index=False)
-    y_test.to_csv(f"{output_test_path}/y_test.csv", index=False)
+    # One-hot encoding de 'age'
+    age_dummies = pd.get_dummies(df_filtrado['age'], prefix='age', dtype=int)
+    df_filtrado = pd.concat([df_filtrado.drop(columns=['age']), age_dummies], axis=1)
 
-    print("Finalizado.")
+    # Tomar muestra del 20% manteniendo proporciones de la clase (estratificado)
+    df_sampled, _ = train_test_split(
+        df_filtrado,
+        train_size=0.20,
+        stratify=df_filtrado['readmitted<30'],
+        random_state=42
+    )
+
+    # Dividir en entrenamiento y prueba (80/20)
+    train_df, test_df = train_test_split(
+        df_sampled,
+        test_size=0.2,
+        stratify=df_sampled['readmitted<30'],
+        random_state=42
+    )
+
+    # Guardar archivos
+    os.makedirs(args.output_train, exist_ok=True)
+    os.makedirs(args.output_test, exist_ok=True)
+
+    train_path = os.path.join(args.output_train, "train.csv")
+    test_path = os.path.join(args.output_test, "test.csv")
+
+    train_df.to_csv(train_path, index=False)
+    test_df.to_csv(test_path, index=False)
+
+    print("Preprocesamiento terminado. Shapes:")
+    print("Train:", train_df.shape)
+    print("Test:", test_df.shape)
