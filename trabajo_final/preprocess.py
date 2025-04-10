@@ -11,7 +11,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     # Cargar datos
-    input_path = os.path.join(args.input_data, "diabetes.csv")
+    input_path = os.path.join(args.input_data, "diabetic_data.csv")
     df = pd.read_csv(input_path)
 
     # Convertir columna objetivo a binaria
